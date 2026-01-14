@@ -1,0 +1,54 @@
+[package]
+name = "lunaris-ai-api"
+version = "0.2.0"
+edition = "2021"
+
+[[bin]]
+name = "lunaris-ai-api"
+path = "src/main.rs"
+
+[[bin]]
+name = "client"
+path = "src/bin/client.rs"
+
+[dependencies]
+# HTTP Server
+axum = "0.7"
+tokio = { version = "1.0", features = ["full"] }
+tower-http = { version = "0.5", features = ["cors", "trace"] }
+
+# UI
+crossterm = "0.27"
+
+# Streaming
+tokio-stream = "0.1"
+async-stream = "0.3"
+futures = "0.3"
+
+# Serialization
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+
+# HTTP Client
+reqwest = { version = "0.11", features = ["json", "stream"] }
+
+# Error handling
+anyhow = "1.0"
+thiserror = "1.0"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = "0.3"
+
+# Time
+chrono = { version = "0.4", features = ["serde"] }
+
+# Environment
+dotenvy = "0.15"
+
+# Async trait
+async-trait = "0.1"
+
+# Database (Replacing external storage crate)
+rusqlite = { version = "0.31", features = ["bundled"] }
+google-generative-ai-rs = "0.3.4"
