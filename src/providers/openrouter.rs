@@ -31,11 +31,19 @@ struct OpenRouterResponse {
 #[derive(Deserialize)]
 struct OpenRouterChoice {
     delta: Option<OpenRouterDelta>,
+    message: Option<OpenRouterMessage>, // Non-streaming
 }
 
 #[derive(Deserialize)]
 struct OpenRouterDelta {
     content: Option<String>,
+}
+
+#[derive(Serialize)]
+struct OpenRouterImageRequest {
+    model: String,
+    messages: Vec<OpenRouterMessage>,
+    stream: bool,
 }
 
 impl OpenRouterProvider {
@@ -67,6 +75,10 @@ impl AIProvider for OpenRouterProvider {
     
     fn is_configured(&self) -> bool {
         !self.api_key.is_empty()
+    }
+
+    fn supports_image_generation(&self) -> bool {
+        true 
     }
     
     async fn available_models(&self) -> Vec<String> {
@@ -209,5 +221,94 @@ impl AIProvider for OpenRouterProvider {
         };
         
         Ok((Box::pin(stream), Some(stats)))
+    }
+
+    async fn generate_image(
+        &self,
+        prompt: String,
+        model: Option<&str>,
+        _size: Option<&str>,
+        _quality: Option<&str>,
+    ) -> Result<Vec<u8>, anyhow::Error> {
+        let model = model.unwrap_or("google/gemini-2.5-flash-image-preview").to_string(); // Default to a known working image model on OR
+        
+        // OpenRouter uses chat completions for images
+        let request = OpenRouterImageRequest {
+            model: model,
+            messages: vec![
+                OpenRouterMessage {
+                    role: "user".to_string(),
+                    content: prompt
+                }
+            ],
+            stream: false,
+        };
+
+        let client = self.client.clone();
+        let api_key = self.api_key.clone();
+
+        let response = client
+            .post("https://openrouter.ai/api/v1/chat/completions")
+            .header("Authorization", format!("Bearer {}", api_key))
+            .header("Content-Type", "application/json")
+            .header("HTTP-Referer", "https://github.com/lunaris-ai-api")
+            .header("X-Title", "Lunaris AI API")
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+             let error = response.text().await?;
+             return Err(anyhow::anyhow!("OpenRouter Image Generation failed: {}", error));
+        }
+
+        let response_text = response.text().await?;
+        println!("DEBUG: Raw OpenRouter Image Response: {}", response_text);
+
+        let res_json: serde_json::Value = serde_json::from_str(&response_text)?;
+        
+        // Parse response for image
+        // Usually in message.content as Markdown ![image](url) OR standard OpenAI format?
+        // OpenRouter normalizes to OpenAI format often. 
+        // If it's pure standard OpenAI image generation it would be data: [{url: ...}].
+        // But via chat/completions it's likely a markdown image or base64.
+        
+        if let Some(choices) = res_json["choices"].as_array() {
+            if let Some(choice) = choices.first() {
+                if let Some(message) = choice["message"].as_object() {
+                    if let Some(content) = message.get("content").and_then(|c| c.as_str()) {
+                         // Check for markdown image format: ![desc](url)
+                         if let Some(start) = content.find("](") {
+                             if let Some(end) = content[start..].find(")") {
+                                 let url = &content[start+2..start+end];
+                                 // Download the image
+                                 if url.starts_with("http") {
+                                     let img_resp = reqwest::get(url).await?;
+                                     let bytes = img_resp.bytes().await?.to_vec();
+                                     return Ok(bytes);
+                                 } else if url.starts_with("data:image/") {
+                                     // Base64 data uri
+                                      let comma = url.find(',').unwrap_or(0);
+                                      let base64_data = &url[comma+1..];
+                                      use base64::{Engine as _, engine::general_purpose::STANDARD as BASE64};
+                                      let bytes = BASE64.decode(base64_data)?;
+                                      return Ok(bytes);
+                                 }
+                             }
+                         }
+                         // Check for images array in message (some providers do this)
+                         if let Some(_images) = message.get("images").and_then(|i| i.as_array()) {
+                              // If explicit "images" field exists
+                              // This assumes it might be an array of urls or base64
+                         }
+                    }
+                }
+            }
+        }
+        
+        // If we failed to find an image in the standard chat response,
+        // it means the model refused or used a format we didn't parse.
+        // Or maybe OpenRouter didn't generate an image.
+        Err(anyhow::anyhow!("No image found in OpenRouter response"))
     }
 }

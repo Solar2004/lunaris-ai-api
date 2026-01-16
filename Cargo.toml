@@ -13,7 +13,7 @@ path = "src/bin/client.rs"
 
 [dependencies]
 # HTTP Server
-axum = "0.7"
+axum = { version = "0.7", features = ["multipart", "ws"] }
 tokio = { version = "1.0", features = ["full"] }
 tower-http = { version = "0.5", features = ["cors", "trace"] }
 
@@ -30,7 +30,13 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # HTTP Client
-reqwest = { version = "0.11", features = ["json", "stream"] }
+reqwest = { version = "0.11", features = ["json", "stream", "multipart"] }
+
+# WebSocket
+tokio-tungstenite = { version = "0.20", features = ["native-tls"] }
+futures-util = "0.3"
+url = "2.4"
+http = "1.0"
 
 # Error handling
 anyhow = "1.0"
@@ -52,3 +58,4 @@ async-trait = "0.1"
 # Database (Replacing external storage crate)
 rusqlite = { version = "0.31", features = ["bundled"] }
 google-generative-ai-rs = "0.3.4"
+base64 = "0.22.1"

@@ -1,10 +1,11 @@
 use async_trait::async_trait;
 use async_stream::stream;
-use std::pin::Pin;
+
 use std::sync::atomic::{AtomicUsize, Ordering};
 use crate::types::ChatMessage;
 use crate::providers::{AIProvider, ProviderStream};
 use serde::{Deserialize, Serialize};
+use reqwest::multipart;
 
 pub struct GroqProvider {
     api_keys: Vec<String>,
@@ -37,6 +38,11 @@ struct GroqChoice {
 #[derive(Deserialize)]
 struct GroqDelta {
     content: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct GroqTranscriptionResponse {
+    text: String,
 }
 
 impl GroqProvider {
@@ -76,6 +82,10 @@ impl AIProvider for GroqProvider {
     
     fn is_configured(&self) -> bool {
         !self.api_keys.is_empty()
+    }
+
+    fn supports_transcription(&self) -> bool {
+        true
     }
     
     async fn available_models(&self) -> Vec<String> {
@@ -224,5 +234,56 @@ impl AIProvider for GroqProvider {
         
         // All keys failed
         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All Groq API keys failed")))
+    }
+
+    async fn transcribe_file(
+        &self,
+        file_bytes: Vec<u8>,
+        _content_type: &str, // Groq handles most audio types automatically
+    ) -> Result<String, anyhow::Error> {
+         // Cycle keys if needed, but for now simple retry logic similar to chat
+         let mut last_error = None;
+         
+         for attempt in 0..self.api_keys.len() {
+             let api_key = match self.next_api_key() {
+                 Some(key) => key,
+                 None => return Err(anyhow::anyhow!("No API keys configured")),
+             };
+             
+             let client = reqwest::Client::new();
+             
+             // Multipart form
+             let form = multipart::Form::new()
+                 .part("file", multipart::Part::bytes(file_bytes.clone()).file_name("audio.mp3")) // Filename required by some APIs
+                 .text("model", "whisper-large-v3")
+                 .text("temperature", "0")
+                 .text("response_format", "json");
+                 
+             let response = match client
+                 .post("https://api.groq.com/openai/v1/audio/transcriptions")
+                 .header("Authorization", format!("Bearer {}", api_key))
+                 .multipart(form)
+                 .send()
+                 .await
+             {
+                 Ok(r) => r,
+                 Err(e) => {
+                     last_error = Some(e.into());
+                     continue;
+                 }
+             };
+             
+             if !response.status().is_success() {
+                 let status = response.status();
+                 let error_text = response.text().await.unwrap_or_default();
+                 last_error = Some(anyhow::anyhow!("Groq transcription error {}: {}", status, error_text));
+                 continue;
+             }
+             
+             let res: GroqTranscriptionResponse = response.json().await?;
+             return Ok(res.text);
+         }
+         
+         Err(last_error.unwrap_or_else(|| anyhow::anyhow!("All Groq API keys failed for transcription")))
     }
 }

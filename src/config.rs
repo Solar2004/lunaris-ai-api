@@ -15,6 +15,10 @@ pub struct Config {
     pub mistral_api_keys: Vec<String>,
     pub cohere_api_keys: Vec<String>,
     
+    // Transcription Providers
+    pub speechmatics_api_keys: Vec<String>,
+    pub assemblyai_api_keys: Vec<String>,
+    
     // Tracking
     pub tracking_enabled: bool,
     pub tracking_reset_hour: u8,
@@ -58,6 +62,8 @@ impl Config {
             nvidia_api_keys: parse_keys("NVIDIA_API_KEY"),
             mistral_api_keys: parse_keys("MISTRAL_API_KEY"),
             cohere_api_keys: parse_keys("COHERE_API_KEY"),
+            speechmatics_api_keys: parse_keys("SPEECHMATICS_API_KEY"),
+            assemblyai_api_keys: parse_keys("ASSEMBLYAI_API_KEY"),
             
             tracking_enabled: std::env::var("TRACKING_ENABLED")
                 .unwrap_or_else(|_| "true".to_string())
