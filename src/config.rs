@@ -14,6 +14,8 @@ pub struct Config {
     pub nvidia_api_keys: Vec<String>,
     pub mistral_api_keys: Vec<String>,
     pub cohere_api_keys: Vec<String>,
+    pub jimmy_api_keys: Vec<String>,
+    pub jimmy_base_url: String,
     
     // Tracking
     pub tracking_enabled: bool,
@@ -58,6 +60,9 @@ impl Config {
             nvidia_api_keys: parse_keys("NVIDIA_API_KEY"),
             mistral_api_keys: parse_keys("MISTRAL_API_KEY"),
             cohere_api_keys: parse_keys("COHERE_API_KEY"),
+            jimmy_api_keys: parse_keys("JIMMY_API_KEY"),
+            jimmy_base_url: std::env::var("JIMMY_BASE_URL")
+                .unwrap_or_else(|_| "http://127.0.0.1:8787".to_string()),
             
             tracking_enabled: std::env::var("TRACKING_ENABLED")
                 .unwrap_or_else(|_| "true".to_string())

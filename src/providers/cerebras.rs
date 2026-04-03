@@ -122,10 +122,21 @@ impl AIProvider for CerebrasProvider {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
+            
+            let possible_solution = match status.as_u16() {
+                401 => "Solution: Check if your API Key is correct in .env file.",
+                404 => "Solution: Check if the model name is correct.",
+                429 => "Solution: You have hit the rate limit. Please wait before sending more requests.",
+                500..=599 => "Solution: Cerebras service is experiencing internal issues. Try again later.",
+                _ => "Solution: Check the error message details.",
+            };
+
             return Err(anyhow::anyhow!(
-                "Cerebras API error {}: {}",
+                "Cerebras API error {} - {}\nAPI Key used: {}\n{}",
                 status,
-                error_text
+                error_text,
+                self.api_key,
+                possible_solution
             ));
         }
 

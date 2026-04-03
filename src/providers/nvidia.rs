@@ -142,7 +142,22 @@ impl AIProvider for NvidiaProvider {
         if !response.status().is_success() {
             let status = response.status();
             let error_text = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!("Nvidia API error {}: {}", status, error_text));
+            
+            let possible_solution = match status.as_u16() {
+                401 => "Solution: Check if your API Key is correct in .env file.",
+                404 => "Solution: Check if the model name is correct, or if the Nvidia NIM endpoint is reachable. Some models require specific permissions.",
+                429 => "Solution: You have hit the rate limit. Please wait before sending more requests.",
+                500..=599 => "Solution: Nvidia service is experiencing internal issues. Try again later.",
+                _ => "Solution: Check the error message details.",
+            };
+
+            return Err(anyhow::anyhow!(
+                "Nvidia API error {} - {}\nAPI Key used: {}\n{}", 
+                status, 
+                error_text,
+                self.api_key,
+                possible_solution
+            ));
         }
 
         let mut stats = crate::types::RateLimitStats::default();

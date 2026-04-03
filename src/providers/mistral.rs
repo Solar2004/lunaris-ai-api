@@ -38,6 +38,37 @@ struct MistralDelta {
     content: Option<String>,
 }
 
+#[derive(Serialize)]
+struct MistralEmbeddingRequest {
+    model: String,
+    input: Vec<String>,
+}
+
+#[derive(Deserialize)]
+struct MistralEmbeddingResponse {
+    data: Vec<MistralEmbeddingData>,
+    model: String,
+    usage: MistralUsage,
+}
+
+#[derive(Deserialize)]
+struct MistralEmbeddingData {
+    object: String,
+    embedding: Vec<f32>,
+    index: usize,
+}
+
+#[derive(Deserialize)]
+struct MistralUsage {
+    prompt_tokens: u32,
+    total_tokens: u32,
+}
+
+#[derive(Deserialize)]
+struct MistralFineTuningListResponse {
+    data: Vec<crate::types::FinetuningJob>,
+}
+
 impl MistralProvider {
     pub fn new(api_key: String) -> Self {
         Self { 
@@ -208,5 +239,185 @@ impl AIProvider for MistralProvider {
         };
         
         Ok((Box::pin(stream), Some(stats)))
+    }
+    async fn embeddings(
+        &self,
+        model: &str,
+        input: Vec<String>,
+    ) -> Result<crate::types::EmbeddingResponse, anyhow::Error> {
+        let request = MistralEmbeddingRequest {
+            model: model.to_string(),
+            input,
+        };
+
+        let response = self.client
+            .post("https://api.mistral.ai/v1/embeddings")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .header("Accept", "application/json")
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Mistral API error {}: {}", status, error_text));
+        }
+
+        let mistral_response = response.json::<MistralEmbeddingResponse>().await?;
+
+        Ok(crate::types::EmbeddingResponse {
+            object: "list".to_string(),
+            data: mistral_response.data.into_iter().map(|d| crate::types::EmbeddingObject {
+                object: d.object,
+                embedding: d.embedding,
+                index: d.index,
+            }).collect(),
+            model: mistral_response.model,
+            usage: crate::types::EmbeddingUsage {
+                prompt_tokens: mistral_response.usage.prompt_tokens,
+                total_tokens: mistral_response.usage.total_tokens,
+            },
+        })
+    }
+
+    async fn upload_file(
+        &self,
+        data: Vec<u8>,
+        filename: &str,
+    ) -> Result<crate::types::FileMetadata, anyhow::Error> {
+        use reqwest::multipart;
+
+        let part = multipart::Part::bytes(data)
+            .file_name(filename.to_string())
+            .mime_str("application/octet-stream")?;
+
+        let form = multipart::Form::new()
+            .part("file", part)
+            .text("purpose", "fine-tune");
+
+        let response = self.client
+            .post("https://api.mistral.ai/v1/files")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .multipart(form)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Mistral File API error {}: {}", status, error_text));
+        }
+
+        Ok(response.json::<crate::types::FileMetadata>().await?)
+    }
+
+    async fn create_finetuning_job(
+        &self,
+        request: crate::types::FinetuningRequest,
+    ) -> Result<crate::types::FinetuningJob, anyhow::Error> {
+        let response = self.client
+            .post("https://api.mistral.ai/v1/fine_tuning/jobs")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Content-Type", "application/json")
+            .json(&request)
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Mistral Fine-tuning API error {}: {}", status, error_text));
+        }
+
+        Ok(response.json::<crate::types::FinetuningJob>().await?)
+    }
+
+    async fn get_finetuning_job(
+        &self,
+        job_id: &str,
+    ) -> Result<crate::types::FinetuningJob, anyhow::Error> {
+        let url = format!("https://api.mistral.ai/v1/fine_tuning/jobs/{}", job_id);
+        let response = self.client
+            .get(url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Mistral Fine-tuning API error {}: {}", status, error_text));
+        }
+
+        Ok(response.json::<crate::types::FinetuningJob>().await?)
+    }
+
+    async fn list_finetuning_jobs(
+        &self,
+    ) -> Result<Vec<crate::types::FinetuningJob>, anyhow::Error> {
+        let response = self.client
+            .get("https://api.mistral.ai/v1/fine_tuning/jobs")
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .send()
+            .await?;
+
+        if !response.status().is_success() {
+            let status = response.status();
+            let error_text = response.text().await.unwrap_or_default();
+            return Err(anyhow::anyhow!("Mistral Fine-tuning API error {}: {}", status, error_text));
+        }
+
+        let list_resp = response.json::<MistralFineTuningListResponse>().await?;
+        Ok(list_resp.data)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::*;
+
+    #[test]
+    fn test_embedding_request_serialization() {
+        let req = MistralEmbeddingRequest {
+            model: "mistral-embed".to_string(),
+            input: vec!["hello".to_string()],
+        };
+        let json = serde_json::to_string(&req).unwrap();
+        assert!(json.contains("\"model\":\"mistral-embed\""));
+        assert!(json.contains("\"input\":[\"hello\"]"));
+    }
+
+    #[test]
+    fn test_file_metadata_deserialization() {
+        let json = r#"{
+            "id": "file-123",
+            "object": "file",
+            "bytes": 100,
+            "created_at": 123456,
+            "filename": "test.jsonl",
+            "purpose": "fine-tune"
+        }"#;
+        let meta: FileMetadata = serde_json::from_str(json).unwrap();
+        assert_eq!(meta.id, "file-123");
+        assert_eq!(meta.filename, "test.jsonl");
+    }
+
+    #[test]
+    fn test_finetuning_job_deserialization() {
+        let json = r#"{
+            "id": "job-123",
+            "model": "mistral-small-latest",
+            "status": "succeeded",
+            "created_at": 123456,
+            "finished_at": 123457,
+            "fine_tuned_model": "ft:model:suffix"
+        }"#;
+        let job: FinetuningJob = serde_json::from_str(json).unwrap();
+        assert_eq!(job.id, "job-123");
+        assert_eq!(job.status, "succeeded");
+        assert_eq!(job.fine_tuned_model.unwrap(), "ft:model:suffix");
     }
 }

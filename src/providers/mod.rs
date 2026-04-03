@@ -51,6 +51,47 @@ pub trait AIProvider: Send + Sync {
     ) -> Result<(ProviderStream, Option<crate::types::RateLimitStats>), anyhow::Error> {
         Err(anyhow::anyhow!("Code completion not implemented for this provider"))
     }
+
+    /// Generate embeddings
+    async fn embeddings(
+        &self,
+        _model: &str,
+        _input: Vec<String>,
+    ) -> Result<crate::types::EmbeddingResponse, anyhow::Error> {
+        Err(anyhow::anyhow!("Embeddings not implemented for this provider"))
+    }
+
+    /// Upload a file for fine-tuning
+    async fn upload_file(
+        &self,
+        _data: Vec<u8>,
+        _filename: &str,
+    ) -> Result<crate::types::FileMetadata, anyhow::Error> {
+        Err(anyhow::anyhow!("File upload not implemented for this provider"))
+    }
+
+    /// Create a fine-tuning job
+    async fn create_finetuning_job(
+        &self,
+        _request: crate::types::FinetuningRequest,
+    ) -> Result<crate::types::FinetuningJob, anyhow::Error> {
+        Err(anyhow::anyhow!("Fine-tuning not implemented for this provider"))
+    }
+
+    /// Get status of a fine-tuning job
+    async fn get_finetuning_job(
+        &self,
+        _job_id: &str,
+    ) -> Result<crate::types::FinetuningJob, anyhow::Error> {
+        Err(anyhow::anyhow!("Fine-tuning not implemented for this provider"))
+    }
+
+    /// List fine-tuning jobs
+    async fn list_finetuning_jobs(
+        &self,
+    ) -> Result<Vec<crate::types::FinetuningJob>, anyhow::Error> {
+        Err(anyhow::anyhow!("Fine-tuning not implemented for this provider"))
+    }
 }
 
 // Placeholder implementations
@@ -66,3 +107,4 @@ pub mod github;
 pub mod nvidia;
 pub mod mistral;
 pub mod cohere;
+pub mod jimmy;
